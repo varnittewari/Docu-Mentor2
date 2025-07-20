@@ -36,6 +36,8 @@ ENV/
 
 # Secrets
 backend/private-key.pem
+*.pem
+backend/config.py
 
 # Node
 node_modules/
@@ -53,3 +55,11 @@ yarn-error.log*
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Cursor
+#  Cursor is an AI-powered code editor. `.cursorignore` specifies files/directories to
+#  exclude from AI features like autocomplete and code analysis. Recommended for sensitive data
+#  refer to https://docs.cursor.com/context/ignore-files
+.cursorignore
+.cursorindexingignore
+.cursor
