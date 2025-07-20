@@ -1,4 +1,9 @@
 fastapi
 uvicorn[standard]
 pydantic
-python-decouple 
+python-decouple
+requests
+pyjwt
+cryptography
+openai
+flake8 

@@ -1,0 +1,6 @@
+from decouple import config
+
+GITHUB_APP_ID = config("GITHUB_APP_ID", cast=int)
+GITHUB_WEBHOOK_SECRET = config("GITHUB_WEBHOOK_SECRET")
+GITHUB_PRIVATE_KEY_PEM_PATH = config("GITHUB_PRIVATE_KEY_PEM_PATH")
+OPENAI_API_KEY = config("OPENAI_API_KEY") 

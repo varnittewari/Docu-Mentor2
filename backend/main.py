@@ -1,6 +1,8 @@
-from fastapi import FastAPI, Request, Header
+from fastapi import FastAPI, Request, Header, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 import uvicorn
+import github_client
+import llm_client
 
 # --- Pydantic Models ---
 # A generic model to accept any valid JSON from GitHub's webhook
@@ -10,26 +12,96 @@ class GitHubWebhookPayload(BaseModel):
 # --- FastAPI App Initialization ---
 app = FastAPI(
     title="Docu-Mentor Backend",
-    description="Handles GitHub webhooks and processes code for documentation generation.",
-    version="0.1.0"
+    version="0.3.0"
 )
+
+def process_pull_request(payload: dict):
+    """
+    The main background task to analyze a PR and post documentation suggestions.
+    """
+    installation_id = payload.get("installation", {}).get("id")
+    pull_request_data = payload.get("pull_request", {})
+    pr_number = pull_request_data.get("number")
+    repo_name = payload.get("repository", {}).get("full_name")
+
+    print(f"Processing PR #{pr_number} in repo {repo_name}.")
+
+    # 1. Get an installation access token
+    token = github_client.get_installation_access_token(installation_id)
+    if not token:
+        print("Error: Could not get installation access token.")
+        return
+
+    # 2. Get the diff for the pull request
+    diff = github_client.get_pull_request_diff(repo_name, pr_number, token)
+    if not diff:
+        print("Error: Could not fetch PR diff.")
+        return
+
+    # 3. Parse the diff to find new functions
+    new_functions = github_client.parse_diff_for_new_functions(diff)
+    if not new_functions:
+        print("No new functions found in the PR diff.")
+        return
+
+    print(f"Found {len(new_functions)} new functions to document.")
+
+    # 4. Generate docstrings for each new function
+    suggestions = []
+    for func in new_functions:
+        print(f"Generating docstring for function: {func['name']}")
+        docstring = llm_client.generate_docstring_for_function(func['code'])
+        if docstring:
+            suggestion = (
+                f"### Suggestion for `{func['name']}`\n\n"
+                "```python\n"
+                f"{docstring}\n"
+                "```"
+            )
+            suggestions.append(suggestion)
+
+    # 5. Post a comment if there are any suggestions
+    if suggestions:
+        comment_body = (
+            "**Docu-Mentor** found some functions that could use documentation:\n\n---\n\n" +
+            "\n\n---\n\n".join(suggestions)
+        )
+        github_client.post_comment_on_pr(repo_name, pr_number, comment_body, token)
+    else:
+        print("No docstrings could be generated.")
 
 # --- API Endpoints ---
 @app.get("/health", tags=["Monitoring"])
 async def health_check():
-    """
-    Health check endpoint to verify service is running.
-    """
+    """Health check endpoint."""
     return {"status": "ok"}
 
 @app.post("/api/v1/webhook/github", tags=["Webhooks"])
-async def receive_github_webhook(payload: dict, x_github_event: str = Header(None)):
+async def receive_github_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    x_github_event: str = Header(None),
+    x_hub_signature_256: str = Header(None)
+):
     """
-    Receives webhook events from the Docu-Mentor GitHub App.
+    Receives, verifies, and processes webhook events from the GitHub App.
     """
-    print(f"Received GitHub event: '{x_github_event}'")
-    # In later phases, we will add verification and processing logic here.
-    print("Webhook received and acknowledged.")
+    raw_body = await request.body()
+
+    # 1. Verify the webhook signature
+    if not github_client.verify_github_signature(raw_body, x_hub_signature_256):
+        raise HTTPException(status_code=403, detail="Invalid signature.")
+
+    payload = await request.json()
+    print(f"Successfully received and verified GitHub event: '{x_github_event}'")
+
+    # 2. Process only 'pull_request' events that are 'opened' or 'reopened'
+    if x_github_event == "pull_request":
+        action = payload.get("action")
+        if action in ["opened", "synchronize"]:
+            # Run the processing in the background to respond to GitHub quickly
+            background_tasks.add_task(process_pull_request, payload)
+
     return {"status": "success", "event_received": x_github_event}
 
 # --- Main Entry Point ---
