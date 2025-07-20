@@ -98,9 +98,16 @@ async def receive_github_webhook(
     # 2. Process only 'pull_request' events that are 'opened' or 'reopened'
     if x_github_event == "pull_request":
         action = payload.get("action")
-        if action in ["opened", "synchronize"]:
-            # Run the processing in the background to respond to GitHub quickly
+        print(f"DEBUG: Pull request action is '{action}'.")
+    
+    # We will check against a wider range of actions
+        if action in ["opened", "synchronize", "reopened", "ready_for_review"]:
+            print(f"Action '{action}' is valid. Adding task to background.")
             background_tasks.add_task(process_pull_request, payload)
+        else:
+            print(f"Action '{action}' is not one we process. Skipping.")
+    else:
+        print(f"Event '{x_github_event}' is not a pull request. Skipping.")
 
     return {"status": "success", "event_received": x_github_event}
 
